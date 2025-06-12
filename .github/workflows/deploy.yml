@@ -1,0 +1,48 @@
+# .github/workflows/deploy.yml
+name: Build and Deploy to ECR
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag
+        id: vars
+        run: echo "TAG=ci-action-$(date +%s)" >> $GITHUB_ENV
+
+      - name: Build, tag, and push image to ECR
+        run: |
+          docker build -t $ECR_REPOSITORY:$TAG .
+          docker push $ECR_REPOSITORY:$TAG
+        env:
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          TAG: ${{ env.TAG }}
+
+      - name: Update deploy repo
+        run: |
+          git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ secrets.DEPLOY_REPO }} deploy
+          cd deploy/myapp
+          sed -i "s/tag:.*/tag: $TAG/" values.yaml
+          git config --global user.email "actions@github.com"
+          git config --global user.name "github-actions"
+          git commit -am "Update image tag to $TAG"
+          git push
+
